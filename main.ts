@@ -7,7 +7,7 @@
 // In a trial the grader runs `node /bot/main.ts` with MAKEFUN_ENV_URL set, and then this file hands over to runner.ts
 // (the last lines below): keep that hand-over and runner.ts as they are, and write the CLI.
 
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmdirSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const FORMATS = ['auto', 'unified', 'search-replace', 'v4a', 'json'];
@@ -715,7 +715,18 @@ function run(args: string[]): { code: number; out: string[] } {
   }
   rows.sort((a, b) => Buffer.compare(Buffer.from(a.key), Buffer.from(b.key)));
   if (!check) {
-    for (const p of changed) if (tree.now.get(p) === null) rmSync(p, { force: true });
+    for (const p of changed) {
+      if (tree.now.get(p) !== null) continue;
+      rmSync(p, { force: true });
+      // A directory a deletion leaves empty goes too, so a later write may put a file at its path (D a/b, A a).
+      for (let d = dirname(p); d !== '.'; d = dirname(d)) {
+        try {
+          rmdirSync(d);
+        } catch {
+          break;
+        }
+      }
+    }
     for (const p of changed) {
       const now = tree.now.get(p)!;
       if (now === null) continue;
