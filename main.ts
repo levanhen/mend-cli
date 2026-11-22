@@ -101,16 +101,14 @@ function jsonEdit(v: unknown): Edit | null {
     const newStr = (o.new_str as string | undefined) ?? '';
     return (tree) => {
       const before = exists(tree);
-      const nl = before.indexOf('\n');
-      const crlf = nl > 0 && before[nl - 1] === '\r';
+      const crlf = readDoc(before).br === '\r\n';
       const lf = (s: string): string => (crlf ? s.replaceAll('\r\n', '\n') : s);
       const t = lf(before);
       const old = lf(oldStr);
-      let count = 0;
-      for (let k = t.indexOf(old); k >= 0; k = t.indexOf(old, k + 1)) count += 1;
-      if (count === 0) throw new Fail('no-match', p);
-      if (count > 1) throw new Fail('ambiguous', p);
       const at = t.indexOf(old);
+      if (at < 0) throw new Fail('no-match', p);
+      // Occurrences may overlap, so the second is looked for one character on, not after the first.
+      if (t.indexOf(old, at + 1) >= 0) throw new Fail('ambiguous', p);
       const out = t.slice(0, at) + lf(newStr) + t.slice(at + old.length);
       tree.now.set(p, crlf ? out.replaceAll('\n', '\r\n') : out);
     };
@@ -119,15 +117,10 @@ function jsonEdit(v: unknown): Edit | null {
     const line = o.insert_line;
     const add = patchLines(o.new_str);
     return (tree) => {
-      const before = exists(tree);
-      const nl = before.indexOf('\n');
-      const br = nl > 0 && before[nl - 1] === '\r' ? '\r\n' : '\n';
-      const lines = before === '' ? [] : before.split(br);
-      const final = before !== '' && before.endsWith(br);
-      if (final) lines.pop();
-      if (line < 0 || line > lines.length) throw new Fail('no-match', p);
-      lines.splice(line, 0, ...add);
-      tree.now.set(p, lines.length === 0 ? '' : lines.join(br) + (final ? br : ''));
+      const doc = readDoc(exists(tree));
+      if (line < 0 || line > doc.lines.length) throw new Fail('no-match', p);
+      doc.lines.splice(line, 0, ...add);
+      tree.now.set(p, writeDoc(doc));
     };
   }
   return null;
@@ -445,6 +438,9 @@ function sectionEdit(s: Section): Edit {
 // ---------------------------------------------------------------------------------------------------------------
 // SEARCH/REPLACE blocks (section 7).
 
+/** A marker line with its trailing whitespace removed. */
+const rstripWs = (s: string): string => s.replace(/\s+$/, '');
+
 function searchReplaceEdits(lines: string[]): Edit[] {
   const edits: Edit[] = [];
   let prevEnd = 0;
@@ -485,8 +481,6 @@ function searchReplaceEdits(lines: string[]): Edit[] {
   }
   return edits;
 }
-
-const rstripWs = (s: string): string => s.replace(/\s+$/, '');
 
 function blockEdit(p: string, old: string[], neu: string[]): Edit {
   return (tree) => {
